@@ -17,7 +17,7 @@
     .download-btn { background:#9c27b0; color:white; }
     .progress-container { margin:15px 0; background:#f8f9fa; border-radius:5px; padding:10px; }
     .progress-bar { height:20px; background:#007bff; border-radius:10px; width:0%; transition:width 0.3s; }
-    .status { margin-top:11px; font-size:14px; color:#666; }
+    .status { margin-top:10px; font-size:14px; color:#666; }
     .result-box, .debug-box { background:#fff; padding:15px; margin-top:15px; border-radius:8px; white-space:pre-wrap; font-size:14px; border-left:4px solid; display:none; }
     .result-box { border-color:#000; }
     .debug-box { border-color:#ffc107; font-size:12px; }
@@ -40,6 +40,7 @@
   <h2>Login</h2>
   <input type="password" id="loginPass" placeholder="Enter Password">
   <button onclick="doLogin()">Login</button>
+  <p style="color:#666; font-size:12px; margin-top:10px;">Password: 1234</p>
 </div>
 
 <!-- MAIN APP -->
@@ -106,17 +107,36 @@
 <script>
 // ================= LOGIN SYSTEM =================
 const PASSWORD = "1234"; 
-if (localStorage.getItem("loggedIn") === "yes") {
-  document.getElementById("loginBox").style.display = "none";
-  document.getElementById("app").style.display = "block";
-}
+
+// Page load pe check karein
+window.onload = function() {
+  const loggedIn = localStorage.getItem("loggedIn");
+  if (loggedIn === "yes") {
+    document.getElementById("loginBox").style.display = "none";
+    document.getElementById("app").style.display = "block";
+  } else {
+    document.getElementById("loginBox").style.display = "block";
+    document.getElementById("app").style.display = "none";
+  }
+};
+
 function doLogin() {
-  let p = document.getElementById("loginPass").value;
+  let passwordInput = document.getElementById("loginPass");
+  let p = passwordInput.value;
+  
+  console.log("Entered password:", p); // Debug ke liye
+  console.log("Expected password:", PASSWORD); // Debug ke liye
+  
   if (p === PASSWORD) {
     localStorage.setItem("loggedIn", "yes");
     document.getElementById("loginBox").style.display = "none";
     document.getElementById("app").style.display = "block";
-  } else { alert("Wrong Password!"); }
+    alert("Login successful!");
+  } else { 
+    alert("Wrong Password! Try: 1234");
+    passwordInput.value = ""; // Clear input
+    passwordInput.focus(); // Focus back to input
+  }
 }
 
 // ================= GLOBAL VARIABLES =================
@@ -534,4 +554,22 @@ document.addEventListener('DOMContentLoaded', function() {
     try {
       bulkData = JSON.parse(savedData);
       if (bulkData.length > 0) {
-        docume
+        document.getElementById('bulkExportBtn').style.display = 'block';
+        document.getElementById('bulkDebugBtn').style.display = 'block';
+      }
+    } catch(e) {
+      console.error('Error loading saved data:', e);
+    }
+  }
+  
+  // Save data periodically
+  setInterval(() => {
+    if (bulkData.length > 0) {
+      localStorage.setItem('bulkData', JSON.stringify(bulkData));
+    }
+  }, 30000);
+});
+</script>
+
+</body>
+</html>
