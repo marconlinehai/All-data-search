@@ -1,0 +1,555 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Bulk UPI Data Export</title>
+  <style>
+    html, body { margin:0; padding:0; width:100%; font-family: Arial, sans-serif; background:#f2f2f2; }
+    .box { background:white; padding:20px; border-radius:10px; max-width:800px; margin:auto; box-shadow:0 0 10px #ddd; }
+    input, textarea, button { width:100%; padding:12px; margin:10px 0; font-size:16px; border-radius:6px; border:1px solid #ccc; }
+    textarea { height:150px; resize:vertical; }
+    button { cursor:pointer; border:none; }
+    button:hover { opacity:0.85; }
+    .export-btn { background:#28a745; color:white; }
+    .bulk-btn { background:#007bff; color:white; }
+    .debug-btn { background:#ffc107; color:black; }
+    .stop-btn { background:#dc3545; color:white; }
+    .download-btn { background:#9c27b0; color:white; }
+    .progress-container { margin:15px 0; background:#f8f9fa; border-radius:5px; padding:10px; }
+    .progress-bar { height:20px; background:#007bff; border-radius:10px; width:0%; transition:width 0.3s; }
+    .status { margin-top:10px; font-size:14px; color:#666; }
+    .result-box, .debug-box { background:#fff; padding:15px; margin-top:15px; border-radius:8px; white-space:pre-wrap; font-size:14px; border-left:4px solid; display:none; }
+    .result-box { border-color:#000; }
+    .debug-box { border-color:#ffc107; font-size:12px; }
+    .button-group { display:flex; gap:10px; margin-top:10px; }
+    .button-group button { flex:1; }
+    #loginBox { max-width:350px; margin:auto; background:white; padding:25px; border-radius:10px; box-shadow:0 0 10px #ccc; }
+    .error { color: #dc3545; }
+    .success { color: #28a745; }
+    .stats { display:flex; justify-content:space-between; margin:10px 0; padding:10px; background:#f8f9fa; border-radius:5px; }
+    .stat-item { text-align:center; }
+    .stat-value { font-size:20px; font-weight:bold; }
+    .stat-label { font-size:12px; color:#666; }
+  </style>
+  <script src="https://unpkg.com/xlsx/dist/xlsx.full.min.js"></script>
+</head>
+<body>
+
+<!-- LOGIN SCREEN -->
+<div id="loginBox">
+  <h2>Login</h2>
+  <input type="password" id="loginPass" placeholder="Enter Password">
+  <button onclick="doLogin()">Login</button>
+</div>
+
+<!-- MAIN APP -->
+<div id="app" style="display:none;">
+  <div class="box">
+    <h2>All Bank Data search </h2>
+
+    <!-- SINGLE SEARCH -->
+    <h3>Single search</h3>
+    <input id="consumer" type="text" placeholder="Enter Mobile Number">
+    <div class="button-group">
+      <button onclick="fetchSingleBill()">Get details</button>
+      <button class="debug-btn" onclick="showSingleDebug()" id="singleDebugBtn" style="display:none;">Debug Fields</button>
+    </div>
+
+    <!-- BULK SEARCH -->
+    <h3>Bulk Data Search meximum 10k</h3>
+    <textarea id="bulkConsumers" placeholder="Enter multiple Mobile Numbers (one per line)"></textarea>
+    <div class="stats" id="bulkStats" style="display:none;">
+      <div class="stat-item">
+        <div class="stat-value" id="statTotal">0</div>
+        <div class="stat-label">Total</div>
+      </div>
+      <div class="stat-item">
+        <div class="stat-value success" id="statSuccess">0</div>
+        <div class="stat-label">Success</div>
+      </div>
+      <div class="stat-item">
+        <div class="stat-value error" id="statError">0</div>
+        <div class="stat-label">Errors</div>
+      </div>
+      <div class="stat-item">
+        <div class="stat-value" id="statRemaining">0</div>
+        <div class="stat-label">Remaining</div>
+      </div>
+    </div>
+    
+    <div class="button-group">
+      <button class="bulk-btn" onclick="startBulkProcessing()" id="processBtn">Process Bulk Data</button>
+      <button class="stop-btn" onclick="stopBulkProcessing()" id="stopBtn" style="display:none;">Stop Processing</button>
+    </div>
+    
+    <div class="button-group">
+      <button class="export-btn" onclick="exportBulkToExcel()" id="bulkExportBtn" style="display:none;">Export All to Excel</button>
+      <button class="debug-btn" onclick="showBulkDebug()" id="bulkDebugBtn" style="display:none;">Show Field Map</button>
+      <button class="download-btn" onclick="downloadPurchaseData()">Download Purchase Data</button>
+      <button onclick="autoFillConsumers()">Autofill</button>
+    </div>
+
+    <!-- PROGRESS & STATUS -->
+    <div class="progress-container">
+      <div class="progress-bar" id="progressBar"></div>
+      <div class="status" id="progressStatus">Ready</div>
+    </div>
+
+    <!-- RESULTS -->
+    <div id="singleResult" class="result-box"></div>
+    <div id="singleDebug" class="debug-box"></div>
+    <div id="bulkResult" class="result-box"></div>
+    <div id="bulkDebug" class="debug-box"></div>
+  </div>
+</div>
+
+<script>
+// ================= LOGIN SYSTEM =================
+const PASSWORD = "1234"; 
+if (localStorage.getItem("loggedIn") === "yes") {
+  document.getElementById("loginBox").style.display = "none";
+  document.getElementById("app").style.display = "block";
+}
+function doLogin() {
+  let p = document.getElementById("loginPass").value;
+  if (p === PASSWORD) {
+    localStorage.setItem("loggedIn", "yes");
+    document.getElementById("loginBox").style.display = "none";
+    document.getElementById("app").style.display = "block";
+  } else { alert("Wrong Password!"); }
+}
+
+// ================= GLOBAL VARIABLES =================
+let currentBillData = null;
+let bulkData = [];
+let processedCount = 0;
+let totalCount = 0;
+let isBulkProcessing = false;
+let abortController = null;
+let currentConsumerIndex = 0;
+
+// ================= SINGLE SEARCH =================
+function fetchSingleBill() {
+  const consumer = document.getElementById("consumer").value.trim();
+  const resultBox = document.getElementById("singleResult");
+  const debugBtn = document.getElementById("singleDebugBtn");
+
+  resultBox.innerHTML = "";
+  resultBox.style.display = "block";
+  document.getElementById("singleDebug").style.display = "none";
+  debugBtn.style.display = "none";
+
+  if (!consumer) return alert("Please enter Mobile Number!");
+
+  const apiURL = `https://numtoupi.vercel.app/api?number=${consumer}&token=eyJlbmMiOiJBMjU2Q0JDLUhTNTEyIiwiZXBrIjp7Imt0eSI6Ik9LUCIsImNydiI6Ilg0NDgiLCJ4IjoiSEp0UFNhQ0VFMDlwUVMxUmZSN1RSUS13UUpIM0lDUkY5eEZPMXd1Y1RUdFFKSlE3Q2ZtdDlhRFJvTUZuM21ySVR0eUVOZk1EWWZBIn0sImFsZyI6IkVDREgtRVMifQ..lDayd4D8mlIjn_vFfte_Ag.lZnzEfqR9QOmWQiCJpY97Twkl_7sxSuCIzHAzW1JsK55RFHduQg-4ac0AIAzyIrK-AJ0kKNQ3ZAl7_xBCMh7PkbmRvQ5mYcTerjsj-Qh4BtxCB4xDyGb1bmkFkW8-KOWWJ7FFdbZqJKoastO1PyTqMl2OW-E26Xr0aFbKxMrV2dm593UEq3NYtyC6YS2KmLHZjBTduNQDC6PVfNEKl9n6MIlw4CtH5kDl7WpgNmVW47u9hTZ5oL-Elw531xBD9SZf5Pu_ZDLimaCQ9zWQRZ74Q0ANNPqzPM-XerTqeCua0vCbQlaMmcrAWGXk3cGCQslEMd_TK6Q7w14WSHoFMiuYdvVZHCPm8tq3jF3P4f-cFkloao7Z02hlYvUoDqPabWF.AkHHieKNo7qdGtrxvkTgKj6mpHPQ8jaUmhF6glyz_00`;
+
+  resultBox.innerHTML = "Loading...";
+
+  fetch(apiURL)
+    .then(res => {
+      if (!res.ok) throw new Error(`HTTP Error ${res.status}`);
+      return res.json();
+    })
+    .then(data => {
+      currentBillData = data;
+      displaySingleResult(data, consumer, resultBox);
+      debugBtn.style.display = "block";
+    })
+    .catch((error) => { 
+      resultBox.innerHTML = `<span class="error">Error fetching data: ${error.message}</span>`;
+    });
+}
+
+function displaySingleResult(data, consumer, resultBox) {
+  const resp = data.data?.verify_vpa_resp || {};
+  let finalText = "=== UPI INFORMATION ===\n\n";
+  finalText += `Mobile Number: ${consumer}\n\n`;
+  finalText += `Name: ${resp.name || ""}\n`;
+  finalText += `UPI Number: ${resp.upi_number || ""}\n`;
+  finalText += `VPA: ${resp.vpa || ""}\n`;
+  finalText += `IFSC: ${resp.ifsc || ""}\n`;
+
+  resultBox.innerHTML = finalText;
+}
+
+function showSingleDebug() {
+  if (!currentBillData) return;
+  const debugBox = document.getElementById("singleDebug");
+  debugBox.innerHTML = JSON.stringify(currentBillData.data?.verify_vpa_resp || {}, null, 2);
+  debugBox.style.display = "block";
+}
+
+// ================= BULK PROCESS =================
+function startBulkProcessing() {
+  if (isBulkProcessing) {
+    if (confirm("Bulk processing is already running. Do you want to stop it?")) {
+      stopBulkProcessing();
+    }
+    return;
+  }
+
+  const text = document.getElementById("bulkConsumers").value.trim();
+  const resultBox = document.getElementById("bulkResult");
+  if (!text) return alert("Please enter Mobile Numbers!");
+  
+  const consumers = text.split('\n').map(c => c.trim()).filter(c => c.length > 0);
+  
+  // Remove duplicates
+  const uniqueConsumers = [...new Set(consumers)];
+  
+  bulkData = [];
+  processedCount = 0;
+  currentConsumerIndex = 0;
+  resultBox.innerHTML = "";
+  resultBox.style.display = "block";
+  totalCount = uniqueConsumers.length;
+  isBulkProcessing = true;
+  
+  // Show statistics
+  document.getElementById('bulkStats').style.display = 'flex';
+  updateStats();
+  
+  // Update buttons
+  document.getElementById('processBtn').style.display = 'none';
+  document.getElementById('stopBtn').style.display = 'block';
+  document.getElementById('bulkExportBtn').style.display = 'none';
+  document.getElementById('bulkDebugBtn').style.display = 'none';
+
+  updateProgress(0, `Starting... 0/${totalCount}`);
+  resultBox.innerHTML = `Starting bulk processing for ${totalCount} numbers...\n\n`;
+
+  // Process first consumer
+  processNextConsumer(uniqueConsumers);
+}
+
+function stopBulkProcessing() {
+  isBulkProcessing = false;
+  
+  if (abortController) {
+    abortController.abort();
+    abortController = null;
+  }
+  
+  // Update buttons
+  document.getElementById('processBtn').style.display = 'block';
+  document.getElementById('stopBtn').style.display = 'none';
+  
+  updateProgress(100, `Stopped at ${processedCount}/${totalCount}`);
+  resultBox.innerHTML += `\n\n=== PROCESSING STOPPED ===\nProcessed ${processedCount} out of ${totalCount} numbers.`;
+  
+  if (bulkData.length > 0) {
+    document.getElementById('bulkExportBtn').style.display = 'block';
+    document.getElementById('bulkDebugBtn').style.display = 'block';
+  }
+}
+
+function processNextConsumer(consumers) {
+  if (!isBulkProcessing || currentConsumerIndex >= consumers.length) {
+    if (currentConsumerIndex >= consumers.length) {
+      bulkProcessingComplete();
+    }
+    return;
+  }
+
+  const consumer = consumers[currentConsumerIndex];
+  const currentNumber = currentConsumerIndex + 1;
+  
+  updateProgress(Math.round((currentNumber/totalCount)*100), `Processing ${currentNumber}/${totalCount}: ${consumer}`);
+  
+  // Create new abort controller for this request
+  abortController = new AbortController();
+  
+  const apiURL = `https://numtoupi.vercel.app/api?number=${consumer}&token=eyJlbmMiOiJBMjU2Q0JDLUhTNTEyIiwiZXBrIjp7Imt0eSI6Ik9LUCIsImNydiI6Ilg0NDgiLCJ4IjoiSEp0UFNhQ0VFMDlwUVMxUmZSN1RSUS13UUpIM0lDUkY5eEZPMXd1Y1RUdFFKSlE3Q2ZtdDlhRFJvTUZuM21ySVR0eUVOZk1EWWZBIn0sImFsZyI6IkVDREgtRVMifQ..lDayd4D8mlIjn_vFfte_Ag.lZnzEfqR9QOmWQiCJpY97Twkl_7sxSuCIzHAzW1JsK55RFHduQg-4ac0AIAzyIrK-AJ0kKNQ3ZAl7_xBCMh7PkbmRvQ5mYcTerjsj-Qh4BtxCB4xDyGb1bmkFkW8-KOWWJ7FFdbZqJKoastO1PyTqMl2OW-E26Xr0aFbKxMrV2dm593UEq3NYtyC6YS2KmLHZjBTduNQDC6PVfNEKl9n6MIlw4CtH5kDl7WpgNmVW47u9hTZ5oL-Elw531xBD9SZf5Pu_ZDLimaCQ9zWQRZ74Q0ANNPqzPM-XerTqeCua0vCbQlaMmcrAWGXk3cGCQslEMd_TK6Q7w14WSHoFMiuYdvVZHCPm8tq3jF3P4f-cFkloao7Z02hlYvUoDqPabWF.AkHHieKNo7qdGtrxvkTgKj6mpHPQ8jaUmhF6glyz_00`;
+
+  // Set timeout for request (25 seconds)
+  const timeoutId = setTimeout(() => {
+    if (abortController) {
+      abortController.abort();
+    }
+  }, 25000);
+
+  fetch(apiURL, { 
+    signal: abortController.signal 
+  })
+  .then(res => {
+    clearTimeout(timeoutId);
+    if (!res.ok) throw new Error(`HTTP Error ${res.status}`);
+    return res.json();
+  })
+  .then(data => {
+    processedCount++;
+    const resp = data.data?.verify_vpa_resp || {};
+    bulkData.push({
+      "Name": resp.name || "",
+      "Mobile": consumer,
+      "UPI Number": resp.upi_number || "",
+      "VPA": resp.vpa || "",
+      "IFSC": resp.ifsc || "",
+      "Status": "Success",
+      "Timestamp": new Date().toLocaleString()
+    });
+    
+    updateBulkResults();
+    updateStats();
+    
+    // Move to next consumer
+    currentConsumerIndex++;
+    
+    // Small delay before next request (500ms - 1 second random)
+    const delay = 500 + Math.random() * 500;
+    setTimeout(() => {
+      if (isBulkProcessing) {
+        processNextConsumer(consumers);
+      }
+    }, delay);
+  })
+  .catch(error => {
+    clearTimeout(timeoutId);
+    
+    processedCount++;
+    bulkData.push({
+      "Name": "",
+      "Mobile": consumer,
+      "UPI Number": "",
+      "VPA": "",
+      "IFSC": "",
+      "Status": error.name === 'AbortError' ? 'Timeout (25s)' : `Error: ${error.message}`,
+      "Timestamp": new Date().toLocaleString()
+    });
+    
+    updateBulkResults();
+    updateStats();
+    
+    // Move to next consumer even if this one failed
+    currentConsumerIndex++;
+    
+    // Shorter delay for failed requests
+    setTimeout(() => {
+      if (isBulkProcessing) {
+        processNextConsumer(consumers);
+      }
+    }, 300);
+  });
+}
+
+function updateProgress(percent, text){
+  document.getElementById("progressBar").style.width = percent + "%";
+  document.getElementById("progressStatus").innerText = text;
+}
+
+function updateStats() {
+  const successCount = bulkData.filter(item => item.Status === "Success").length;
+  const errorCount = bulkData.filter(item => item.Status !== "Success").length;
+  const remaining = totalCount - processedCount;
+  
+  document.getElementById('statTotal').textContent = totalCount;
+  document.getElementById('statSuccess').textContent = successCount;
+  document.getElementById('statError').textContent = errorCount;
+  document.getElementById('statRemaining').textContent = remaining;
+}
+
+function updateBulkResults(){
+  const resultBox = document.getElementById("bulkResult");
+  const percent = Math.round((processedCount/totalCount)*100);
+  
+  let summary = `=== PROCESSING STATUS ===\n`;
+  summary += `Processed: ${processedCount}/${totalCount} (${percent}%)\n\n`;
+  
+  // Show current processing status
+  if (currentConsumerIndex < totalCount) {
+    summary += `Currently processing: ${currentConsumerIndex + 1}/${totalCount}\n\n`;
+  }
+  
+  // Show last 3 entries
+  if (bulkData.length > 0) {
+    const lastEntries = bulkData.slice(-3);
+    summary += "Last 3 Entries:\n";
+    lastEntries.forEach((entry, i) => {
+      const statusIcon = entry.Status === "Success" ? "✓" : "✗";
+      const statusClass = entry.Status === "Success" ? "success" : "error";
+      summary += `${statusIcon} ${entry.Mobile}: ${entry.Name || 'No data'} <span class="${statusClass}">(${entry.Status})</span>\n`;
+    });
+  }
+  
+  resultBox.innerHTML = summary;
+}
+
+function bulkProcessingComplete(){
+  isBulkProcessing = false;
+  updateProgress(100, "Completed!");
+  
+  // Update buttons
+  document.getElementById('processBtn').style.display = 'block';
+  document.getElementById('stopBtn').style.display = 'none';
+  document.getElementById('bulkExportBtn').style.display = 'block';
+  document.getElementById('bulkDebugBtn').style.display = 'block';
+  
+  // Show final statistics
+  const successCount = bulkData.filter(item => item.Status === "Success").length;
+  const errorCount = bulkData.filter(item => item.Status !== "Success").length;
+  
+  const resultBox = document.getElementById("bulkResult");
+  resultBox.innerHTML += `\n\n=== PROCESSING COMPLETED ===\n`;
+  resultBox.innerHTML += `Total Numbers: ${totalCount}\n`;
+  resultBox.innerHTML += `Successful: ${successCount}\n`;
+  resultBox.innerHTML += `Failed: ${errorCount}\n`;
+  resultBox.innerHTML += `Success Rate: ${Math.round((successCount/totalCount)*100)}%\n\n`;
+  resultBox.innerHTML += `Click "Export All to Excel" to download results.`;
+  
+  alert(`Bulk Processing Completed!\n\nTotal: ${totalCount}\nSuccess: ${successCount}\nErrors: ${errorCount}\nSuccess Rate: ${Math.round((successCount/totalCount)*100)}%`);
+}
+
+function showBulkDebug(){
+  const debugBox = document.getElementById("bulkDebug");
+  const sampleData = bulkData.slice(0, Math.min(10, bulkData.length));
+  debugBox.innerHTML = `=== SAMPLE DATA (First ${sampleData.length} entries) ===\n` + JSON.stringify(sampleData, null, 2);
+  debugBox.style.display = "block";
+}
+
+// ================= EXPORT EXCEL =================
+function exportBulkToExcel(){
+  if(bulkData.length === 0) return alert("No data to export!");
+  
+  // Prepare data for export
+  const exportData = bulkData.map(item => ({
+    "Mobile Number": item.Mobile,
+    "Name": item.Name,
+    "UPI Number": item["UPI Number"],
+    "VPA": item.VPA,
+    "IFSC": item.IFSC,
+    "Status": item.Status,
+    "Timestamp": item.Timestamp
+  }));
+  
+  const ws = XLSX.utils.json_to_sheet(exportData);
+  const wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, ws, "UPI Data");
+  
+  // Auto-size columns
+  const wscols = [
+    {wch: 15}, // Mobile Number
+    {wch: 25}, // Name
+    {wch: 20}, // UPI Number
+    {wch: 25}, // VPA
+    {wch: 15}, // IFSC
+    {wch: 20}, // Status
+    {wch: 25}  // Timestamp
+  ];
+  ws['!cols'] = wscols;
+  
+  const dateStr = new Date().toISOString().slice(0,10).replace(/-/g, '');
+  XLSX.writeFile(wb, `UPI_Data_${dateStr}.xlsx`);
+  
+  const successCount = bulkData.filter(item => item.Status === "Success").length;
+  alert(`Excel Export Successful!\n\nExported ${bulkData.length} records.\nSuccessful: ${successCount}\nFailed: ${bulkData.length - successCount}`);
+}
+
+// ================= DOWNLOAD PURCHASE DATA =================
+function downloadPurchaseData() {
+  // Vercel server se file download karega
+  const fileName = 'purchase_data.xlsx';
+  
+  // Try different possible server paths
+  const possiblePaths = [
+    `/${fileName}`,
+    `/public/${fileName}`,
+    `/files/${fileName}`,
+    `/data/${fileName}`,
+    `/downloads/${fileName}`
+  ];
+  
+  // Create download link
+  const downloadLink = document.createElement('a');
+  downloadLink.style.display = 'none';
+  
+  let fileFound = false;
+  
+  // Try each path
+  for (const path of possiblePaths) {
+    const testUrl = path;
+    downloadLink.href = testUrl;
+    downloadLink.download = fileName;
+    
+    // Create a test request to check if file exists
+    fetch(testUrl, { method: 'HEAD' })
+      .then(response => {
+        if (response.ok) {
+          fileFound = true;
+          // Trigger download
+          document.body.appendChild(downloadLink);
+          downloadLink.click();
+          document.body.removeChild(downloadLink);
+          alert(`Downloading ${fileName}...`);
+        }
+      })
+      .catch(() => {
+        // Continue to next path
+      });
+  }
+  
+  // If no path worked, show error
+  setTimeout(() => {
+    if (!fileFound) {
+      alert(`Could not find ${fileName} on the server.\nPlease make sure the file is in your public folder.`);
+    }
+  }, 2000);
+}
+
+// ================= AUTOFILL =================
+function autoFillConsumers(){
+  const textarea = document.getElementById("bulkConsumers");
+  let lines = textarea.value.trim().split("\n").map(x => x.trim()).filter(x => x);
+  if(lines.length === 0){ alert("Enter at least one number!"); return; }
+  
+  let lastNumber = lines[lines.length-1];
+  if(!/^\d+$/.test(lastNumber)){ alert("Last number must be numeric!"); return; }
+  
+  let qty = prompt("Kitni quantity autofill karni hai?");
+  qty = parseInt(qty);
+  if(!qty || qty < 1) return alert("Invalid quantity!");
+  
+  let base = parseInt(lastNumber);
+  let newList = [];
+  for(let i = 1; i <= qty; i++){ 
+    newList.push((base + i).toString()); 
+  }
+  
+  textarea.value += "\n" + newList.join("\n");
+}
+
+// Handle page refresh warning
+window.onbeforeunload = function(e) {
+  if (isBulkProcessing) {
+    e.preventDefault();
+    e.returnValue = "Bulk processing is in progress. Are you sure you want to leave?";
+    return "Bulk processing is in progress. Are you sure you want to leave?";
+  }
+};
+
+// Initialize
+document.addEventListener('DOMContentLoaded', function() {
+  // Load saved data if exists
+  const savedData = localStorage.getItem('bulkData');
+  if (savedData) {
+    try {
+      bulkData = JSON.parse(savedData);
+      if (bulkData.length > 0) {
+        document.getElementById('bulkExportBtn').style.display = 'block';
+        document.getElementById('bulkDebugBtn').style.display = 'block';
+      }
+    } catch(e) {
+      console.error('Error loading saved data:', e);
+    }
+  }
+  
+  // Save data periodically
+  setInterval(() => {
+    if (bulkData.length > 0) {
+      localStorage.setItem('bulkData', JSON.stringify(bulkData));
+    }
+  }, 30000);
+});
+</script>
+
+</body>
+</html>
