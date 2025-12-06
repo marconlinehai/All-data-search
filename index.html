@@ -2,10 +2,10 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8">
-  <title>Bulk UPI Data Export</title>
+  <title>All Bank Data Search</title>
   <style>
     html, body { margin:0; padding:0; width:100%; font-family: Arial, sans-serif; background:#f2f2f2; }
-    .box { background:white; padding:20px; border-radius:10px; max-width:800px; margin:auto; box-shadow:0 0 10px #ddd; }
+    .box { background:white; padding:20px; border-radius:10px; max-width:800px; margin:20px auto; box-shadow:0 0 10px #ddd; }
     input, textarea, button { width:100%; padding:12px; margin:10px 0; font-size:16px; border-radius:6px; border:1px solid #ccc; }
     textarea { height:150px; resize:vertical; }
     button { cursor:pointer; border:none; }
@@ -23,7 +23,6 @@
     .debug-box { border-color:#ffc107; font-size:12px; }
     .button-group { display:flex; gap:10px; margin-top:10px; }
     .button-group button { flex:1; }
-    #loginBox { max-width:350px; margin:auto; background:white; padding:25px; border-radius:10px; box-shadow:0 0 10px #ccc; }
     .error { color: #dc3545; }
     .success { color: #28a745; }
     .stats { display:flex; justify-content:space-between; margin:10px 0; padding:10px; background:#f8f9fa; border-radius:5px; }
@@ -35,18 +34,10 @@
 </head>
 <body>
 
-<!-- LOGIN SCREEN -->
-<div id="loginBox">
-  <h2>Login</h2>
-  <input type="password" id="loginPass" placeholder="Enter Password">
-  <button onclick="doLogin()">Login</button>
-  <p style="color:#666; font-size:12px; margin-top:10px;">Password: 1234</p>
-</div>
-
 <!-- MAIN APP -->
-<div id="app" style="display:none;">
+<div id="app">
   <div class="box">
-    <h2>All Bank Data search </h2>
+    <h2>All Bank Data Search</h2>
 
     <!-- SINGLE SEARCH -->
     <h3>Single search</h3>
@@ -57,7 +48,7 @@
     </div>
 
     <!-- BULK SEARCH -->
-    <h3>Bulk Data Search meximum 10k</h3>
+    <h3>Bulk Data Search maximum 10k</h3>
     <textarea id="bulkConsumers" placeholder="Enter multiple Mobile Numbers (one per line)"></textarea>
     <div class="stats" id="bulkStats" style="display:none;">
       <div class="stat-item">
@@ -105,40 +96,6 @@
 </div>
 
 <script>
-// ================= LOGIN SYSTEM =================
-const PASSWORD = "1234"; 
-
-// Page load pe check karein
-window.onload = function() {
-  const loggedIn = localStorage.getItem("loggedIn");
-  if (loggedIn === "yes") {
-    document.getElementById("loginBox").style.display = "none";
-    document.getElementById("app").style.display = "block";
-  } else {
-    document.getElementById("loginBox").style.display = "block";
-    document.getElementById("app").style.display = "none";
-  }
-};
-
-function doLogin() {
-  let passwordInput = document.getElementById("loginPass");
-  let p = passwordInput.value;
-  
-  console.log("Entered password:", p); // Debug ke liye
-  console.log("Expected password:", PASSWORD); // Debug ke liye
-  
-  if (p === PASSWORD) {
-    localStorage.setItem("loggedIn", "yes");
-    document.getElementById("loginBox").style.display = "none";
-    document.getElementById("app").style.display = "block";
-    alert("Login successful!");
-  } else { 
-    alert("Wrong Password! Try: 1234");
-    passwordInput.value = ""; // Clear input
-    passwordInput.focus(); // Focus back to input
-  }
-}
-
 // ================= GLOBAL VARIABLES =================
 let currentBillData = null;
 let bulkData = [];
