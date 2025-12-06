@@ -423,52 +423,35 @@ function exportBulkToExcel(){
 
 // ================= DOWNLOAD PURCHASE DATA =================
 function downloadPurchaseData() {
-  // Vercel server se file download karega
+  // Direct download link create karein
   const fileName = 'purchase_data.xlsx';
   
-  // Try different possible server paths
-  const possiblePaths = [
-    `/${fileName}`,
-    `/public/${fileName}`,
-    `/files/${fileName}`,
-    `/data/${fileName}`,
-    `/downloads/${fileName}`
-  ];
+  // Static file ka URL - aap apne actual URL se replace kar sakte hain
+  // Agar file same directory me hai to:
+  const fileUrl = './' + fileName;
   
-  // Create download link
+  // Create a temporary link element
   const downloadLink = document.createElement('a');
+  downloadLink.href = fileUrl;
+  downloadLink.download = fileName;
   downloadLink.style.display = 'none';
   
-  let fileFound = false;
+  // Add to page and click
+  document.body.appendChild(downloadLink);
+  downloadLink.click();
   
-  // Try each path
-  for (const path of possiblePaths) {
-    const testUrl = path;
-    downloadLink.href = testUrl;
-    downloadLink.download = fileName;
-    
-    // Create a test request to check if file exists
-    fetch(testUrl, { method: 'HEAD' })
-      .then(response => {
-        if (response.ok) {
-          fileFound = true;
-          // Trigger download
-          document.body.appendChild(downloadLink);
-          downloadLink.click();
-          document.body.removeChild(downloadLink);
-          alert(`Downloading ${fileName}...`);
-        }
-      })
-      .catch(() => {
-        // Continue to next path
-      });
-  }
-  
-  // If no path worked, show error
+  // Clean up
   setTimeout(() => {
-    if (!fileFound) {
-      alert(`Could not find ${fileName} on the server.\nPlease make sure the file is in your public folder.`);
-    }
+    document.body.removeChild(downloadLink);
+  }, 100);
+  
+  // Alert user
+  alert(`Downloading ${fileName}...\nIf download doesn't start, please make sure the file exists in your server's public folder.`);
+  
+  // Alternative method: Agar pehla method kaam na kare
+  setTimeout(() => {
+    // Try opening in new tab as fallback
+    window.open(fileUrl, '_blank');
   }, 2000);
 }
 
